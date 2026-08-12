@@ -8,6 +8,7 @@ import { TodayPage } from './pages/TodayPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { FoodLibraryPage } from './pages/FoodLibraryPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { PwaStatus } from './components/PwaStatus';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -32,4 +33,4 @@ function TrackerApp() {
   </AppShell>;
 }
 
-export default function App() { return <ErrorBoundary><TrackerApp /></ErrorBoundary>; }
+export default function App() { return <ErrorBoundary><TrackerApp /><PwaStatus /></ErrorBoundary>; }
