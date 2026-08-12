@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.vite/
+coverage/
+*.local
+*.log
+*.tsbuildinfo
+.DS_Store
+.idea/
+.vscode/
+work/
+outputs/
+*.json.bak
+体重营养记录_*.json
+体重记录*.csv
+每日营养*.csv
