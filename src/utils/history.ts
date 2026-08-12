@@ -13,6 +13,11 @@ export interface WeightChartPoint extends WeightTrendPoint {
   fullDate: string;
 }
 
+export interface WeightDisplayPair {
+  primary: { value: number; unit: 'kg' | '斤' };
+  secondary: { value: number; unit: 'kg' | '斤' };
+}
+
 export const WEIGHT_TREND_MODE_KEY = 'weightNutrition.weightTrendMode';
 
 export function isWeightSeriesVisible(mode: WeightTrendMode, series: 'actual' | 'average'): boolean {
@@ -27,7 +32,7 @@ export function parseWeightTrendMode(value: string | null): WeightTrendMode {
 export function buildWeightTrendData(records: WeightRecord[], start: string, end: string, unit: WeightUnit): WeightChartPoint[] {
   const convert = (kg: number) => unit === 'jin' ? kgToJin(kg) : kg;
   return records
-    .filter(record => record.date >= start && record.date <= end)
+    .filter(record => record.date >= start && record.date <= end && Number.isFinite(record.weightKg) && record.weightKg > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(record => {
       const average = calculate15DayAverageWeight(records, record.date);
@@ -41,7 +46,7 @@ export function buildWeightTrendData(records: WeightRecord[], start: string, end
 }
 
 /** Only visible series contribute to the chart domain, so hidden outliers do not flatten the line. */
-export function calculateWeightTrendDomain(points: WeightTrendPoint[], mode: WeightTrendMode): [number, number] | null {
+export function calculateWeightTrendDomain(points: WeightTrendPoint[], mode: WeightTrendMode, unit: WeightUnit = 'kg'): [number, number] | null {
   const values = points.flatMap(point => {
     const visible: Array<number | null> = [];
     if (isWeightSeriesVisible(mode, 'actual')) visible.push(point.weight);
@@ -52,6 +57,14 @@ export function calculateWeightTrendDomain(points: WeightTrendPoint[], mode: Wei
   if (!values.length) return null;
   const minimum = Math.min(...values);
   const maximum = Math.max(...values);
-  const padding = minimum === maximum ? 0.5 : Math.max(0.25, (maximum - minimum) * 0.15);
-  return [minimum - padding, maximum + padding];
+  const minimumPadding = unit === 'jin' ? 0.5 : 0.25;
+  const padding = minimum === maximum ? minimumPadding * 2 : Math.max(minimumPadding, (maximum - minimum) * 0.15);
+  return [Math.floor((minimum - padding) * 100) / 100, Math.ceil((maximum + padding) * 100) / 100];
+}
+
+/** Both display values are derived from the same kg source; only their visual priority changes. */
+export function getWeightDisplayPair(weightKg: number, preferredUnit: WeightUnit): WeightDisplayPair {
+  const kg = { value: weightKg, unit: 'kg' as const };
+  const jin = { value: kgToJin(weightKg), unit: '斤' as const };
+  return preferredUnit === 'jin' ? { primary: jin, secondary: kg } : { primary: kg, secondary: jin };
 }
