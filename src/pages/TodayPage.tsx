@@ -5,10 +5,10 @@ import { EmptyState, MacroProgress } from '../components/Ui';
 import type { AppData } from '../hooks/useAppData';
 import { db } from '../db/database';
 import { recalculateAffectedSnapshots, recalculateSnapshot } from '../services/snapshots';
-import type { MealEntry } from '../types';
+import type { MealEntry, WeightRecord } from '../types';
 import { formatFriendlyDate, getAge, parseLocalDate, toLocalDateKey } from '../utils/date';
 import { calculateBMR, calculateDailyActuals, calculateMacroTargets, calculateRemaining, calculateTargetCalories, determineNutritionPlan } from '../utils/nutrition';
-import { calculate15DayAverageWeight, jinToKg, kgToJin, validateWeightKg } from '../utils/weight';
+import { calculate15DayAverageWeight, jinToKg, kgToJin, validateWeightDate, validateWeightKg } from '../utils/weight';
 import { roundKcal, roundSmart } from '../utils/format';
 import { PLAN_LABEL } from '../constants';
 import { FoodFlow } from './FoodFlow';
@@ -56,8 +56,48 @@ export function TodayPage({ data, reload, toast }: { data: AppData; reload: () =
   </div>;
 }
 
-export function WeightModal({ date, initialKg, unit, onClose, onSaved }: { date: string; initialKg?: number; unit: 'kg'|'jin'; onClose: () => void; onSaved: () => Promise<void> }) {
-  const [value, setValue] = useState(initialKg ? String(unit === 'jin' ? kgToJin(initialKg) : initialKg) : ''); const [error, setError] = useState('');
-  const save = async () => { const number = Number(value); const kg = unit === 'jin' ? jinToKg(number) : number; const validation = validateWeightKg(kg); if (validation) { setError(validation); return; } await db.weights.put({ date, weightKg: kg, updatedAt: Date.now() }); await recalculateAffectedSnapshots(date); await onSaved(); onClose(); };
-  return <Modal title={`${date === toLocalDateKey() ? '今天' : date}的体重`} onClose={onClose}><label className="amount-field"><span>体重</span><div><input autoFocus inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} /><b>{unit === 'jin' ? '斤' : 'kg'}</b></div></label>{error && <p className="form-error">{error}</p>}<button className="primary-button full" onClick={() => void save()}>保存体重</button></Modal>;
+interface WeightModalProps {
+  date: string;
+  initialKg?: number;
+  unit: 'kg'|'jin';
+  weights?: WeightRecord[];
+  allowDateSelection?: boolean;
+  title?: string;
+  onClose: () => void;
+  onSaved: (date: string) => Promise<void>;
+}
+
+export function WeightModal({ date, initialKg, unit, weights = [], allowDateSelection = false, title, onClose, onSaved }: WeightModalProps) {
+  const displayWeight = (kg: number) => String(unit === 'jin' ? kgToJin(kg) : kg);
+  const [selectedDate, setSelectedDate] = useState(date);
+  const [value, setValue] = useState(initialKg ? displayWeight(initialKg) : '');
+  const [duplicate, setDuplicate] = useState<WeightRecord | null>(null);
+  const [confirmedExistingDate, setConfirmedExistingDate] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const changeDate = (nextDate: string) => {
+    setSelectedDate(nextDate); setError(''); setConfirmedExistingDate(null);
+    const existing = weights.find(item => item.date === nextDate);
+    if (existing && nextDate !== date) { setDuplicate(existing); setValue(''); }
+    else { setDuplicate(null); setValue(nextDate === date && initialKg ? displayWeight(initialKg) : ''); }
+  };
+  const editExisting = () => { if (!duplicate) return; setValue(displayWeight(duplicate.weightKg)); setConfirmedExistingDate(duplicate.date); setDuplicate(null); };
+  const save = async () => {
+    const dateValidation = validateWeightDate(selectedDate);
+    if (dateValidation) { setError(dateValidation); return; }
+    const existing = weights.find(item => item.date === selectedDate);
+    if (allowDateSelection && existing && selectedDate !== date && confirmedExistingDate !== selectedDate) { setDuplicate(existing); setError(''); return; }
+    const number = Number(value); const kg = unit === 'jin' ? jinToKg(number) : number; const validation = validateWeightKg(kg);
+    if (validation) { setError(validation); return; }
+    await db.weights.put({ date: selectedDate, weightKg: kg, updatedAt: Date.now() });
+    await recalculateAffectedSnapshots(selectedDate); await onSaved(selectedDate); onClose();
+  };
+  return <Modal title={title ?? `${date === toLocalDateKey() ? '今天' : date}的体重`} onClose={onClose}>
+    <div className="weight-form">
+      {allowDateSelection && <label className="field"><span>日期</span><input type="date" value={selectedDate} max={toLocalDateKey()} onChange={event => changeDate(event.target.value)} /></label>}
+      {duplicate && <div className="duplicate-weight-note"><strong>该日期已有体重记录</strong><span>是否编辑现有记录？不会创建第二条记录。</span><div><button onClick={() => { setDuplicate(null); setSelectedDate(date); setValue(initialKg ? displayWeight(initialKg) : ''); }}>取消</button><button onClick={editExisting}>编辑现有记录</button></div></div>}
+      {!duplicate && <label className="amount-field"><span>体重</span><div><input autoFocus={!allowDateSelection} inputMode="decimal" value={value} onChange={event => { setValue(event.target.value); setError(''); }} /><b>{unit === 'jin' ? '斤' : 'kg'}</b></div></label>}
+      {error && <p className="form-error">{error}</p>}
+      {!duplicate && <button className="primary-button full" onClick={() => void save()}>保存体重</button>}
+    </div>
+  </Modal>;
 }

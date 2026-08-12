@@ -1,4 +1,4 @@
-import { Copy, Edit3, Plus, Search, Star, Trash2 } from 'lucide-react';
+import { ChevronRight, Plus, Search, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Field } from '../components/Ui';
 import { Modal } from '../components/Modal';
@@ -12,20 +12,24 @@ import { FoodFlow } from './FoodFlow';
 import { toLocalDateKey } from '../utils/date';
 
 export function FoodLibraryPage({ customFoods, favorites, recentFoodIds, reload, toast }: { customFoods: Food[]; favorites: string[]; recentFoodIds: string[]; reload: () => Promise<void>; toast: (text: string) => void }) {
-  const [query, setQuery] = useState(''); const [category, setCategory] = useState<FoodCategory | '全部'>('全部'); const [editor, setEditor] = useState<Food | 'new' | null>(null); const [recordFood, setRecordFood] = useState<Food | null>(null);
+  const [query, setQuery] = useState(''); const [category, setCategory] = useState<FoodCategory | '全部'>('全部'); const [editor, setEditor] = useState<Food | 'new' | null>(null); const [recordFood, setRecordFood] = useState<Food | null>(null); const [pendingDelete, setPendingDelete] = useState<Food | null>(null);
   const foods = useMemo(() => [...customFoods, ...seedFoods], [customFoods]);
   const filtered = foods.filter(food => (category === '全部' || food.category === category) && `${food.name} ${food.brand ?? ''}`.toLowerCase().includes(query.toLowerCase()));
   const toggleFavorite = async (foodId: string) => { if (favorites.includes(foodId)) await db.favorites.delete(foodId); else await db.favorites.put({ foodId, createdAt: Date.now() }); await reload(); };
-  const remove = async (food: Food) => { if (food.source !== 'user' || !confirm(`删除“${food.name}”？历史饮食记录不会受影响。`)) return; await db.customFoods.delete(food.id); await db.favorites.delete(food.id); await reload(); toast('我的食品已删除，历史记录保持不变'); };
+  const copyFood = (food: Food) => { setRecordFood(null); setEditor({ ...food, id: '', source: 'user', name: `${food.name} - 我的` }); };
+  const editFood = (food: Food) => { setRecordFood(null); setEditor(food); };
+  const askToDelete = (food: Food) => { setRecordFood(null); setPendingDelete(food); };
+  const remove = async () => { if (!pendingDelete || pendingDelete.source !== 'user') return; await db.customFoods.delete(pendingDelete.id); await db.favorites.delete(pendingDelete.id); setPendingDelete(null); await reload(); toast('我的食品已删除，历史记录保持不变'); };
   return <div className="library-page page-enter">
     <header className="page-header"><div><p>更懂你的一日三餐</p><h1>食物库</h1></div><button className="round-add" onClick={() => setEditor('new')}><Plus size={22} /></button></header>
     <div className="search-box library-search"><Search size={20} /><input placeholder="搜索食物或品牌" value={query} onChange={e => setQuery(e.target.value)} /></div>
     <div className="category-chips"><button className={category === '全部' ? 'active' : ''} onClick={() => setCategory('全部')}>全部</button>{FOOD_CATEGORIES.map(item => <button key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div>
     <div className="library-summary"><span>{filtered.length} 种食物</span><button onClick={() => setEditor('new')}><Plus size={16} /> 新建我的食品</button></div>
-    <section className="library-list">{filtered.map(food => <article key={food.id} className="library-item"><button className={`star-button ${favorites.includes(food.id) ? 'active' : ''}`} onClick={() => void toggleFavorite(food.id)} aria-label={favorites.includes(food.id) ? '取消常用' : '加入常用'}><Star size={19} fill={favorites.includes(food.id) ? 'currentColor' : 'none'} /></button><button className="library-main" onClick={() => setRecordFood(food)}><div><strong>{food.name}</strong><span>{food.brand ? `${food.brand} · ` : ''}{food.source === 'system' ? '系统食品' : '我的食品'} · {food.category}</span></div><b>{roundKcal(food.caloriesKcal)} <small>kcal/{food.basisAmount}{food.basisUnit}</small></b></button><div className="library-actions">{food.source === 'system' ? <button title="复制为我的食品" onClick={() => setEditor({ ...food, id: '', source: 'user', name: `${food.name}（我的）` })}><Copy size={17} /></button> : <><button title="编辑" onClick={() => setEditor(food)}><Edit3 size={17} /></button><button title="删除" onClick={() => void remove(food)}><Trash2 size={17} /></button></>}</div></article>)}</section>
+    <section className="library-list">{filtered.map(food => <article key={food.id} className="library-item"><button className={`star-button ${favorites.includes(food.id) ? 'active' : ''}`} onClick={() => void toggleFavorite(food.id)} aria-label={favorites.includes(food.id) ? '取消常用' : '加入常用'}><Star size={19} fill={favorites.includes(food.id) ? 'currentColor' : 'none'} /></button><button className="library-main" onClick={() => setRecordFood(food)}><div><strong>{food.name}</strong><span>{food.brand ? `${food.brand} · ` : ''}{food.source === 'system' ? '系统食品' : '我的食品'} · {food.category}</span></div><b>{roundKcal(food.caloriesKcal)} <small>kcal/{food.basisAmount}{food.basisUnit}</small></b><ChevronRight className="library-chevron" size={18} /></button></article>)}</section>
     {filtered.length === 0 && <p className="inline-empty">没有找到匹配的食物。</p>}
     {editor && <FoodEditor initial={editor === 'new' ? undefined : editor} onClose={() => setEditor(null)} onSaved={async () => { await reload(); setEditor(null); toast('我的食品已保存'); }} />}
-    {recordFood && <FoodFlow date={toLocalDateKey()} customFoods={[recordFood, ...customFoods.filter(f => f.id !== recordFood.id)]} favorites={favorites} recentFoodIds={[recordFood.id, ...recentFoodIds]} onClose={() => setRecordFood(null)} onSaved={async () => { await reload(); toast('已添加到今天'); }} />}
+    {recordFood && <FoodFlow date={toLocalDateKey()} customFoods={customFoods} favorites={favorites} recentFoodIds={recentFoodIds} initialFood={recordFood} onCopyFood={copyFood} onEditFood={editFood} onDeleteFood={askToDelete} onClose={() => setRecordFood(null)} onSaved={async () => { await reload(); toast('已添加到今天'); }} />}
+    {pendingDelete && <Modal title="删除我的食品" onClose={() => setPendingDelete(null)}><div className="confirm-dialog"><p>确定删除“{pendingDelete.name}”吗？</p><span>历史饮食记录会保留当时的食品快照，不会受影响。</span><div><button className="secondary-button" onClick={() => setPendingDelete(null)}>取消</button><button className="danger-button" onClick={() => void remove()}>确认删除</button></div></div></Modal>}
   </div>;
 }
 

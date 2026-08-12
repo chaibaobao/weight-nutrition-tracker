@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronRight, Clock3, Search, Star, Tags } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Clock3, Copy, Edit3, Search, Star, Tags, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Modal } from '../components/Modal';
 import { MEAL_TYPES } from '../constants';
@@ -9,12 +9,24 @@ import type { Food, MealEntry, MealType } from '../types';
 import { calculateFoodNutritionByAmount } from '../utils/nutrition';
 import { roundKcal, roundSmart } from '../utils/format';
 
-interface Props { date: string; customFoods: Food[]; favorites: string[]; recentFoodIds: string[]; editing?: MealEntry | null; onClose: () => void; onSaved: () => Promise<void> | void }
+interface Props {
+  date: string;
+  customFoods: Food[];
+  favorites: string[];
+  recentFoodIds: string[];
+  editing?: MealEntry | null;
+  initialFood?: Food | null;
+  onCopyFood?: (food: Food) => void;
+  onEditFood?: (food: Food) => void;
+  onDeleteFood?: (food: Food) => void;
+  onClose: () => void;
+  onSaved: () => Promise<void> | void;
+}
 
-export function FoodFlow({ date, customFoods, favorites, recentFoodIds, editing, onClose, onSaved }: Props) {
+export function FoodFlow({ date, customFoods, favorites, recentFoodIds, editing, initialFood, onCopyFood, onEditFood, onDeleteFood, onClose, onSaved }: Props) {
   const foods = useMemo(() => [...seedFoods, ...customFoods], [customFoods]);
-  const initialFood = editing ? foods.find(f => f.id === editing.foodId) ?? ({ id: editing.foodId, name: editing.foodNameSnapshot, category: '其他', source: 'user', basisAmount: editing.amount, basisUnit: editing.unit, caloriesKcal: editing.caloriesSnapshot, proteinG: editing.proteinSnapshot, fatG: editing.fatSnapshot, carbsG: editing.carbsSnapshot } satisfies Food) : null;
-  const [selected, setSelected] = useState<Food | null>(initialFood);
+  const initialSelection = editing ? foods.find(f => f.id === editing.foodId) ?? ({ id: editing.foodId, name: editing.foodNameSnapshot, category: '其他', source: 'user', basisAmount: editing.amount, basisUnit: editing.unit, caloriesKcal: editing.caloriesSnapshot, proteinG: editing.proteinSnapshot, fatG: editing.fatSnapshot, carbsG: editing.carbsSnapshot } satisfies Food) : initialFood ?? null;
+  const [selected, setSelected] = useState<Food | null>(initialSelection);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string | null>(null);
   const [amount, setAmount] = useState(editing ? String(editing.amount) : '100');
@@ -44,15 +56,21 @@ export function FoodFlow({ date, customFoods, favorites, recentFoodIds, editing,
       </>}
       {(query || category) && <section className="search-results"><div className="results-title"><h3>{category ?? '搜索结果'}</h3>{category && <button onClick={() => setCategory(null)}>查看全部</button>}</div>{filtered.slice(0, 60).map(food => <FoodRow key={food.id} food={food} onClick={() => setSelected(food)} />)}{filtered.length === 0 && <p className="inline-empty">没有找到，换个关键词试试。</p>}</section>}
     </div> : <div className="food-detail">
-      <button className="text-back" onClick={() => setSelected(null)}><ArrowLeft size={18} /> 返回食物列表</button>
+      <button className="text-back" onClick={() => initialFood && !editing ? onClose() : setSelected(null)}><ArrowLeft size={18} /> {initialFood && !editing ? '返回食物库' : '返回食物列表'}</button>
       <div className="food-detail-head"><div><span className={`source-badge ${selected.source}`}>{selected.source === 'system' ? '系统食品' : '我的食品'}</span><h2>{selected.name}</h2>{selected.brand && <p>{selected.brand}</p>}</div><div className="food-kcal"><strong>{roundKcal(selected.caloriesKcal)}</strong><span>kcal / {selected.basisAmount}{selected.basisUnit}</span></div></div>
       <div className="nutrition-facts"><div><span>蛋白质</span><strong>{roundSmart(selected.proteinG)}g</strong></div><div><span>碳水</span><strong>{roundSmart(selected.carbsG)}g</strong></div><div><span>脂肪</span><strong>{roundSmart(selected.fatG)}g</strong></div></div>
       {selected.serving && <div className="segmented compact"><button className={amountMode === 'basis' ? 'selected' : ''} onClick={() => { setAmountMode('basis'); setAmount('100'); }}>{selected.basisUnit}</button><button className={amountMode === 'serving' ? 'selected' : ''} onClick={() => { setAmountMode('serving'); setAmount('1'); }}>{selected.serving.label}</button></div>}
+      {selected.serving && <p className="serving-reference">参考份量：1{selected.serving.label} = {selected.serving.amount}{selected.serving.unit}</p>}
       <label className="amount-field"><span>本次食用量</span><div><input inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} /><b>{amountMode === 'serving' && selected.serving ? selected.serving.label : selected.basisUnit}</b></div>{amountMode === 'serving' && selected.serving && <small>1{selected.serving.label} = {selected.serving.amount}{selected.serving.unit}</small>}</label>
       <label className="field"><span>餐次（可选）</span><select value={mealType} onChange={e => setMealType(e.target.value as MealType)}>{MEAL_TYPES.map(type => <option key={type}>{type}</option>)}</select></label>
       {nutrition && <div className="calculated-card"><p>这次将记录</p><strong>{roundKcal(nutrition.caloriesKcal)} <small>kcal</small></strong><div><span>蛋白质 {roundSmart(nutrition.proteinG)}g</span><span>碳水 {roundSmart(nutrition.carbsG)}g</span><span>脂肪 {roundSmart(nutrition.fatG)}g</span></div></div>}
       {error && <p className="form-error">{error}</p>}
       <button className="primary-button full" onClick={() => void save()}>{editing ? '保存修改' : '添加到今日'}</button>
+      {!editing && (selected.source === 'system' ? onCopyFood : onEditFood || onDeleteFood) && <div className="food-secondary-actions">
+        {selected.source === 'system' && onCopyFood && <button onClick={() => onCopyFood(selected)}><Copy size={17} />复制为我的食品</button>}
+        {selected.source === 'user' && onEditFood && <button onClick={() => onEditFood(selected)}><Edit3 size={17} />编辑我的食品</button>}
+        {selected.source === 'user' && onDeleteFood && <button className="subtle-danger" onClick={() => onDeleteFood(selected)}><Trash2 size={17} />删除</button>}
+      </div>}
     </div>}
   </Modal>;
 }
