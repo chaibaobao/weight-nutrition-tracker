@@ -1,5 +1,5 @@
-import { ArrowDownRight, CalendarDays, ChevronRight, Plus, Scale, TrendingUp, Utensils } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ArrowDownRight, ArrowLeft, CalendarDays, ChevronRight, Plus, Scale, TrendingUp, Utensils } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/Ui';
@@ -7,14 +7,14 @@ import { PLAN_LABEL } from '../constants';
 import { db, touchRecentFood } from '../db/database';
 import type { AppData } from '../hooks/useAppData';
 import { recalculateSnapshot } from '../services/snapshots';
-import type { DailySnapshot, MealEntry } from '../types';
+import type { DailySnapshot, MealEntry, WeightUnit } from '../types';
 import { addDays, formatFriendlyDate, parseLocalDate, toLocalDateKey } from '../utils/date';
-import { buildWeightTrendData, calculateWeightTrendDomain, getWeightDisplayPair, isWeightSeriesVisible, parseWeightTrendMode, WEIGHT_TREND_MODE_KEY, type WeightTrendMode } from '../utils/history';
+import { buildWeightTrendData, calculateDateSpanDays, calculateWeightTrendDomain, formatWeightXAxisTick, generateWeightXAxisTicks, getRecentHistoryDates, getWeightDisplayPair, isWeightSeriesVisible, parseWeightTrendMode, WEIGHT_TREND_MODE_KEY, type WeightTrendMode, type WeightTrendRange } from '../utils/history';
 import { calculate15DayAverageWeight, kgToJin } from '../utils/weight';
 import { formatWeight, roundKcal, roundSmart } from '../utils/format';
 import { WeightModal } from './TodayPage';
 
-type Range = 7 | 30 | 90 | 99999; type Metric = 'calories'|'protein'|'carbs'|'fat';
+type Range = 7 | 15 | 30 | 99999; type Metric = 'calories'|'protein'|'carbs'|'fat';
 const metricConfig = { calories: ['热量','caloriesKcal','targetCalories','kcal'], protein: ['蛋白质','proteinG','proteinTarget','g'], carbs: ['碳水','carbsG','carbsTarget','g'], fat: ['脂肪','fatG','fatTarget','g'] } as const;
 const trendOptions: Array<[WeightTrendMode, string]> = [['actual', '实际体重'], ['average', '15日平均'], ['both', '两者']];
 
@@ -29,18 +29,26 @@ export function HistoryPage({ data, reload, toast }: { data: AppData; reload: ()
   const [trendMode, setTrendMode] = useState<WeightTrendMode>(getInitialTrendMode);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [backfillOpen, setBackfillOpen] = useState(false);
+  const [showAllRecords, setShowAllRecords] = useState(false);
+  const chartAreaRef = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(360);
   const today = toLocalDateKey(); const start = range === 99999 ? '0000-01-01' : addDays(today, -(range - 1));
   const preferredUnit = data.profile!.weightUnit;
   const unitLabel = preferredUnit === 'jin' ? '斤' : 'kg';
   const displayWeight = (kg: number) => preferredUnit === 'jin' ? kgToJin(kg) : kg;
-  const allDates = useMemo(() => [...new Set([...data.weights.map(w => w.date), ...data.meals.map(m => m.date)])].filter(date => date >= start && date <= today).sort(), [data.weights, data.meals, start, today]);
+  const allHistoryDates = useMemo(() => [...new Set([...data.weights.map(w => w.date), ...data.meals.map(m => m.date)])].filter(date => date <= today).sort(), [data.weights, data.meals, today]);
+  const rangeDates = useMemo(() => allHistoryDates.filter(date => date >= start), [allHistoryDates, start]);
+  const recentDates = useMemo(() => getRecentHistoryDates(allHistoryDates, today), [allHistoryDates, today]);
   const snapshotMap = new Map(data.snapshots.map(s => [s.date, s]));
   const weightData = buildWeightTrendData(data.weights, start, today, preferredUnit);
   const weightDomain = calculateWeightTrendDomain(weightData, trendMode, preferredUnit);
   const showActualWeight = isWeightSeriesVisible(trendMode, 'actual');
   const showAverageWeight = isWeightSeriesVisible(trendMode, 'average');
   const weightChartKey = `${range}-${trendMode}-${preferredUnit}-${weightData.length}`;
-  const nutritionData = allDates.map(date => { const items = data.meals.filter(m => m.date === date); const snap = snapshotMap.get(date); const sum = (key: keyof MealEntry) => items.reduce((total, item) => total + Number(item[key] ?? 0), 0); return { date: date.slice(5).replace('-','/'), fullDate: date, caloriesKcal: sum('caloriesSnapshot'), proteinG: sum('proteinSnapshot'), carbsG: sum('carbsSnapshot'), fatG: sum('fatSnapshot'), targetCalories: snap?.targetCalories ?? 0, proteinTarget: snap?.proteinTarget ?? 0, carbsTarget: snap?.carbsTarget ?? 0, fatTarget: snap?.fatTarget ?? 0 }; });
+  const trendRange: WeightTrendRange = range === 99999 ? 'all' : range;
+  const weightDateSpan = calculateDateSpanDays(weightData);
+  const weightXAxisTicks = useMemo(() => generateWeightXAxisTicks(weightData, trendRange, chartWidth), [weightData, trendRange, chartWidth]);
+  const nutritionData = rangeDates.map(date => { const items = data.meals.filter(m => m.date === date); const snap = snapshotMap.get(date); const sum = (key: keyof MealEntry) => items.reduce((total, item) => total + Number(item[key] ?? 0), 0); return { date: date.slice(5).replace('-','/'), fullDate: date, caloriesKcal: sum('caloriesSnapshot'), proteinG: sum('proteinSnapshot'), carbsG: sum('carbsSnapshot'), fatG: sum('fatSnapshot'), targetCalories: snap?.targetCalories ?? 0, proteinTarget: snap?.proteinTarget ?? 0, carbsTarget: snap?.carbsTarget ?? 0, fatTarget: snap?.fatTarget ?? 0 }; });
   const currentAverage = calculate15DayAverageWeight(data.weights, today); const previousAverage = calculate15DayAverageWeight(data.weights.filter(w => w.date <= addDays(today,-15)), addDays(today,-15)); const change = currentAverage !== null && previousAverage !== null ? currentAverage - previousAverage : null;
   const [label, actualKey, targetKey, unit] = metricConfig[metric];
 
@@ -49,20 +57,56 @@ export function HistoryPage({ data, reload, toast }: { data: AppData; reload: ()
     catch { /* UI preferences can safely fall back when storage is unavailable. */ }
   }, [trendMode]);
 
+  useEffect(() => {
+    const element = chartAreaRef.current;
+    if (!element) return;
+    const update = () => setChartWidth(Math.max(280, Math.round(element.getBoundingClientRect().width)));
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [showAllRecords]);
+
+  if (showAllRecords) return <>
+    <AllRecordsPage dates={allHistoryDates} data={data} preferredUnit={preferredUnit} onBack={() => setShowAllRecords(false)} onSelect={setSelectedDate} onRecordToday={() => setBackfillOpen(true)} />
+    {selectedDate && <HistoryDetail date={selectedDate} data={data} snapshot={snapshotMap.get(selectedDate)} onClose={() => setSelectedDate(null)} reload={reload} toast={toast} />}
+    {backfillOpen && <WeightModal title="补录体重" date={today} initialKg={data.weights.find(item => item.date === today)?.weightKg} unit={preferredUnit} weights={data.weights} allowDateSelection onClose={() => setBackfillOpen(false)} onSaved={async savedDate => { await reload(); toast(`${formatFriendlyDate(savedDate, true)}的体重已保存`); }} />}
+  </>;
+
   return <div className="history-page page-enter"><header className="page-header"><div><p>让变化慢慢变得清晰</p><h1>历史</h1></div><span className="header-art"><TrendingUp size={24} /></span></header>
-    <div className="history-controls"><div className="range-tabs">{[[7,'7天'],[30,'30天'],[90,'90天'],[99999,'全部']].map(([value,label]) => <button key={value} className={range === value ? 'active' : ''} onClick={() => setRange(value as Range)}>{label}</button>)}</div><button className="backfill-button" onClick={() => setBackfillOpen(true)}><Plus size={17} />补录体重</button></div>
-    {allDates.length === 0 ? <EmptyState title="变化正在路上" text="记录几天后，这里就会出现你的变化趋势。" /> : <>
+    <div className="history-controls"><div className="range-tabs">{[[7,'7天'],[15,'15天'],[30,'30天'],[99999,'全部']].map(([value,label]) => <button key={value} className={range === value ? 'active' : ''} onClick={() => setRange(value as Range)}>{label}</button>)}</div><button className="backfill-button" onClick={() => setBackfillOpen(true)}><Plus size={17} />补录体重</button></div>
+    {allHistoryDates.length === 0 ? <EmptyState title="变化正在路上" text="记录几天后，这里就会出现你的变化趋势。" /> : <>
       <section className="average-change-card"><div><span>当前15日平均</span><strong>{currentAverage === null ? '—' : `${formatWeight(displayWeight(currentAverage))} ${unitLabel}`}</strong></div>{change !== null && <div className={change <= 0 ? 'down' : 'up'}><ArrowDownRight size={20} /><span>较前15日</span><strong>{change > 0 ? '+' : ''}{formatWeight(displayWeight(change))} {unitLabel}</strong></div>}</section>
       <section className="chart-card weight-chart">
         <div className="chart-title"><div><Scale size={19} /><h2>体重趋势</h2></div><div className="legend">{showActualWeight && <span className="raw">实际体重</span>}{showAverageWeight && <span className="avg">15日平均</span>}</div></div>
         <div className="trend-mode-tabs" aria-label="体重趋势显示内容">{trendOptions.map(([value, text]) => <button key={value} className={trendMode === value ? 'active' : ''} aria-pressed={trendMode === value} onClick={() => setTrendMode(value)}>{text}</button>)}</div>
-        {weightDomain === null ? <div className="chart-empty">这个时间范围还没有足够的体重记录。</div> : <div className="chart-area"><ResponsiveContainer key={weightChartKey} width="100%" height="100%" minWidth={0}><LineChart data={weightData} margin={{ top: 12, right: 10, left: 0, bottom: 0 }}><CartesianGrid stroke="#ece9df" vertical={false} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill:'#8a8c86' }} minTickGap={24} /><YAxis type="number" scale="linear" domain={weightDomain} allowDataOverflow width={preferredUnit === 'jin' ? 50 : 44} tickCount={5} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill:'#8d938e' }} tickFormatter={value => formatWeight(Number(value))} /><Tooltip contentStyle={{ borderRadius:16, border:'1px solid #e8e5da', boxShadow:'0 10px 30px rgba(60,80,67,.1)' }} formatter={(value, name) => [`${formatWeight(Number(value))} ${unitLabel}`, String(name)]} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullDate ?? ''} />{showActualWeight && <Line key={`actual-${weightChartKey}`} isAnimationActive={false} type="monotone" dataKey="weight" name="实际体重" stroke="#8fa99a" strokeWidth={2.25} dot={{ r:4, fill:'#fffdf9', stroke:'#789882', strokeWidth:2 }} activeDot={{ r:5 }} connectNulls={false} />}{showAverageWeight && <Line key={`average-${weightChartKey}`} isAnimationActive={false} type="monotone" dataKey="average" name="15日平均" stroke="#4f9169" strokeWidth={3} dot={{ r:3.5, fill:'#4f9169', stroke:'#fffdf9', strokeWidth:1.5 }} activeDot={{ r:5 }} connectNulls />}</LineChart></ResponsiveContainer></div>}
+        {weightDomain === null ? <div className="chart-empty">这个时间范围还没有足够的体重记录。</div> : <div className="chart-area" ref={chartAreaRef}><ResponsiveContainer key={weightChartKey} width="100%" height="100%" minWidth={0}><LineChart data={weightData} margin={{ top: 12, right: 10, left: 0, bottom: 0 }}><CartesianGrid stroke="#ece9df" vertical={false} /><XAxis dataKey="fullDate" ticks={weightXAxisTicks} tickFormatter={value => formatWeightXAxisTick(String(value), trendRange, weightDateSpan)} interval={0} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill:'#8a8c86' }} /><YAxis type="number" scale="linear" domain={weightDomain} allowDataOverflow width={preferredUnit === 'jin' ? 50 : 44} tickCount={5} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill:'#8d938e' }} tickFormatter={value => formatWeight(Number(value))} /><Tooltip contentStyle={{ borderRadius:16, border:'1px solid #e8e5da', boxShadow:'0 10px 30px rgba(60,80,67,.1)' }} formatter={(value, name) => [`${formatWeight(Number(value))} ${unitLabel}`, String(name)]} labelFormatter={value => String(value)} />{showActualWeight && <Line key={`actual-${weightChartKey}`} isAnimationActive={false} type="monotone" dataKey="weight" name="实际体重" stroke="#8fa99a" strokeWidth={2.25} dot={{ r:4, fill:'#fffdf9', stroke:'#789882', strokeWidth:2 }} activeDot={{ r:5 }} connectNulls={false} />}{showAverageWeight && <Line key={`average-${weightChartKey}`} isAnimationActive={false} type="monotone" dataKey="average" name="15日平均" stroke="#4f9169" strokeWidth={3} dot={{ r:3.5, fill:'#4f9169', stroke:'#fffdf9', strokeWidth:1.5 }} activeDot={{ r:5 }} connectNulls />}</LineChart></ResponsiveContainer></div>}
       </section>
       <section className="chart-card nutrition-chart"><div className="chart-title"><div><Utensils size={19} /><h2>营养趋势</h2></div></div><div className="metric-tabs">{(Object.keys(metricConfig) as Metric[]).map(key => <button key={key} className={metric === key ? 'active' : ''} onClick={() => setMetric(key)}>{metricConfig[key][0]}</button>)}</div><div className="chart-area"><ResponsiveContainer key={`${metric}-${nutritionData.length}`} width="100%" height="100%" minWidth={0}><BarChart data={nutritionData} barCategoryGap="35%" barGap={4} margin={{ top: 15, right: 4, left: -28, bottom: 0 }}><CartesianGrid stroke="#f0ece2" vertical={false} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize:11, fill:'#8a8c86' }} minTickGap={24} /><YAxis axisLine={false} tickLine={false} tick={{ fontSize:10, fill:'#aaa' }} /><Tooltip cursor={false} contentStyle={{ borderRadius:16, border:'1px solid #e8e5da', boxShadow:'0 10px 28px rgba(60,80,67,.1)' }} formatter={(value, name) => [`${roundSmart(Number(value))} ${unit}`, name === actualKey ? `实际${label}` : `目标${label}`]} /><Bar key={`target-${targetKey}`} isAnimationActive={false} dataKey={targetKey} fill="#dfe9e1" radius={[6,6,0,0]} maxBarSize={16} activeBar={{ stroke:'#abc0b0', strokeWidth:1 }} /><Bar key={`actual-${actualKey}`} isAnimationActive={false} dataKey={actualKey} fill="#f0b985" radius={[6,6,0,0]} maxBarSize={16} activeBar={{ stroke:'#d79765', strokeWidth:1 }} /></BarChart></ResponsiveContainer></div><div className="bar-legend"><span>实际{label}</span><span>当日目标</span></div></section>
-      <section className="daily-history"><div className="section-heading"><div><CalendarDays size={20} /><h2>每日记录</h2></div></div><div className="day-list">{allDates.slice().reverse().map(date => { const weight = data.weights.find(w => w.date === date); const average = calculate15DayAverageWeight(data.weights, date); const weightPair = weight ? getWeightDisplayPair(weight.weightKg, preferredUnit) : null; const averagePair = average === null ? null : getWeightDisplayPair(average, preferredUnit); return <button className="day-row" key={date} onClick={() => setSelectedDate(date)}><div className="day-row-copy"><span className="day-date">{formatFriendlyDate(date)}</span>{weightPair ? <div className="day-weight-pair"><strong>{formatWeight(weightPair.primary.value)} {weightPair.primary.unit}</strong><span>≈ {formatWeight(weightPair.secondary.value)} {weightPair.secondary.unit}</span></div> : <strong className="day-weight-missing">未记录体重</strong>}{averagePair ? <div className="day-average-pair"><span>15日平均 {formatWeight(averagePair.primary.value)} {averagePair.primary.unit}</span><small>≈ {formatWeight(averagePair.secondary.value)} {averagePair.secondary.unit}</small></div> : <span className="day-average">暂无平均数据</span>}</div><ChevronRight className="day-chevron" size={20} /></button>; })}</div></section>
+      <section className="daily-history"><div className="section-heading"><div><CalendarDays size={20} /><h2>每日记录</h2></div><span>最近7天</span></div>{recentDates.length ? <div className="day-list">{recentDates.map(date => <WeightHistoryRow key={date} date={date} data={data} preferredUnit={preferredUnit} onClick={() => setSelectedDate(date)} />)}</div> : <p className="recent-empty">最近7天还没有记录</p>}<button className="view-all-records" onClick={() => setShowAllRecords(true)}>查看全部记录 <ChevronRight size={17} /></button></section>
     </>}
     {selectedDate && <HistoryDetail date={selectedDate} data={data} snapshot={snapshotMap.get(selectedDate)} onClose={() => setSelectedDate(null)} reload={reload} toast={toast} />}
-    {backfillOpen && <WeightModal title="补录体重" date={today} initialKg={data.weights.find(item => item.date === today)?.weightKg} unit={data.profile!.weightUnit} weights={data.weights} allowDateSelection onClose={() => setBackfillOpen(false)} onSaved={async savedDate => { setRange(99999); await reload(); toast(`${formatFriendlyDate(savedDate, true)}的体重已保存`); }} />}
+    {backfillOpen && <WeightModal title="补录体重" date={today} initialKg={data.weights.find(item => item.date === today)?.weightKg} unit={data.profile!.weightUnit} weights={data.weights} allowDateSelection onClose={() => setBackfillOpen(false)} onSaved={async savedDate => { await reload(); toast(`${formatFriendlyDate(savedDate, true)}的体重已保存`); }} />}
+  </div>;
+}
+
+function WeightHistoryRow({ date, data, preferredUnit, onClick }: { date: string; data: AppData; preferredUnit: WeightUnit; onClick: () => void }) {
+  const weight = data.weights.find(item => item.date === date);
+  const average = calculate15DayAverageWeight(data.weights, date);
+  const weightPair = weight ? getWeightDisplayPair(weight.weightKg, preferredUnit) : null;
+  const averagePair = average === null ? null : getWeightDisplayPair(average, preferredUnit);
+  return <button className="day-row" onClick={onClick}><div className="day-row-copy"><span className="day-date">{formatFriendlyDate(date)}</span>{weightPair ? <div className="day-weight-pair"><strong>{formatWeight(weightPair.primary.value)} {weightPair.primary.unit}</strong><span>≈ {formatWeight(weightPair.secondary.value)} {weightPair.secondary.unit}</span></div> : <strong className="day-weight-missing">未记录体重</strong>}{averagePair ? <div className="day-average-pair"><span>15日平均 {formatWeight(averagePair.primary.value)} {averagePair.primary.unit}</span><small>≈ {formatWeight(averagePair.secondary.value)} {averagePair.secondary.unit}</small></div> : <span className="day-average">暂无平均数据</span>}</div><ChevronRight className="day-chevron" size={20} /></button>;
+}
+
+function AllRecordsPage({ dates, data, preferredUnit, onBack, onSelect, onRecordToday }: { dates: string[]; data: AppData; preferredUnit: WeightUnit; onBack: () => void; onSelect: (date: string) => void; onRecordToday: () => void }) {
+  const pageSize = 30;
+  const [visibleCount, setVisibleCount] = useState(pageSize);
+  const descendingDates = useMemo(() => dates.slice().reverse(), [dates]);
+  const visibleDates = descendingDates.slice(0, visibleCount);
+  return <div className="all-records-page page-enter">
+    <header className="subpage-header"><button aria-label="返回历史" onClick={onBack}><ArrowLeft size={20} /></button><div><p>每一次记录都算数</p><h1>全部记录</h1></div><span>{dates.length} 条</span></header>
+    {visibleDates.length ? <><div className="day-list">{visibleDates.map(date => <WeightHistoryRow key={date} date={date} data={data} preferredUnit={preferredUnit} onClick={() => onSelect(date)} />)}</div>{visibleCount < descendingDates.length && <button className="load-more-records" onClick={() => setVisibleCount(count => count + pageSize)}>再显示 {Math.min(pageSize, descendingDates.length - visibleCount)} 条</button>}</> : <EmptyState title="还没有体重记录" text="从今天开始，慢慢留下变化。" action={<button className="empty-action" onClick={onRecordToday}>记录今天体重</button>} />}
   </div>;
 }
 

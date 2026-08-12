@@ -1,7 +1,9 @@
 import type { WeightRecord, WeightUnit } from '../types';
+import { addDays } from './date';
 import { calculate15DayAverageWeight, kgToJin } from './weight';
 
 export type WeightTrendMode = 'actual' | 'average' | 'both';
+export type WeightTrendRange = 7 | 15 | 30 | 'all';
 
 export interface WeightTrendPoint {
   weight: number | null;
@@ -19,6 +21,56 @@ export interface WeightDisplayPair {
 }
 
 export const WEIGHT_TREND_MODE_KEY = 'weightNutrition.weightTrendMode';
+
+function selectEvenly<T>(items: T[], count: number): T[] {
+  if (items.length <= count) return items;
+  const indexes = Array.from({ length: count }, (_, index) => Math.round(index * (items.length - 1) / (count - 1)));
+  return [...new Set(indexes)].map(index => items[index]);
+}
+
+function getDateSpanDays(points: WeightChartPoint[]): number {
+  if (points.length < 2) return 0;
+  const first = new Date(`${points[0].fullDate}T00:00:00`);
+  const last = new Date(`${points[points.length - 1].fullDate}T00:00:00`);
+  return Math.round((last.getTime() - first.getTime()) / 86_400_000);
+}
+
+/** Chooses readable X-axis dates without removing any chart data or tooltip points. */
+export function generateWeightXAxisTicks(points: WeightChartPoint[], range: WeightTrendRange, chartWidth: number): string[] {
+  if (!points.length) return [];
+  const capacity = chartWidth >= 400 ? 7 : chartWidth >= 350 ? 6 : 5;
+  const spanDays = getDateSpanDays(points);
+  const target = range === 7 ? Math.min(7, capacity) : range === 15 || range === 30 ? Math.min(6, capacity) : Math.min(spanDays > 365 ? 6 : 7, capacity);
+
+  if (range === 'all' && spanDays > 90) {
+    const useQuarter = spanDays > 365;
+    const buckets = new Map<string, WeightChartPoint>();
+    points.forEach(point => {
+      const [year, month] = point.fullDate.split('-').map(Number);
+      const key = useQuarter ? `${year}-Q${Math.ceil(month / 3)}` : `${year}-${String(month).padStart(2, '0')}`;
+      if (!buckets.has(key)) buckets.set(key, point);
+    });
+    return selectEvenly([...buckets.values()], target).map(point => point.fullDate);
+  }
+
+  return selectEvenly(points, target).map(point => point.fullDate);
+}
+
+export function formatWeightXAxisTick(date: string, range: WeightTrendRange, spanDays: number): string {
+  const [year, month, day] = date.split('-').map(Number);
+  if (range === 'all' && spanDays > 365) return `${String(year).slice(2)}年Q${Math.ceil(month / 3)}`;
+  if (range === 'all' && spanDays > 90) return `${month}月`;
+  return `${month}/${day}`;
+}
+
+export function calculateDateSpanDays(points: WeightChartPoint[]): number {
+  return getDateSpanDays(points);
+}
+
+export function getRecentHistoryDates(dates: string[], today: string, days = 7): string[] {
+  const start = addDays(today, -(days - 1));
+  return dates.filter(date => date >= start && date <= today).sort().reverse();
+}
 
 export function isWeightSeriesVisible(mode: WeightTrendMode, series: 'actual' | 'average'): boolean {
   return mode === 'both' || mode === series;

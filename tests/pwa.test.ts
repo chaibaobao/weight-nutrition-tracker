@@ -13,7 +13,7 @@ describe('PWA 离线配置', () => {
     const icons = PWA_MANIFEST.icons ?? [];
     expect(icons.some(icon => icon.sizes === '192x192')).toBe(true);
     expect(icons.some(icon => icon.sizes === '512x512')).toBe(true);
-    expect(icons.some(icon => icon.purpose === 'maskable')).toBe(true);
+    expect(icons.some(icon => (Array.isArray(icon.purpose) ? icon.purpose : String(icon.purpose ?? '').split(/\s+/)).includes('maskable'))).toBe(true);
     expect(icons.every(icon => !/^https?:/i.test(icon.src))).toBe(true);
   });
 

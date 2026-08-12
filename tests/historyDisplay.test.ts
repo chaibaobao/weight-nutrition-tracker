@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import indexHtml from '../index.html?raw';
 import historyPageSource from '../src/pages/HistoryPage.tsx?raw';
-import { buildWeightTrendData, calculateWeightTrendDomain, getWeightDisplayPair, isWeightSeriesVisible, parseWeightTrendMode } from '../src/utils/history';
+import { buildWeightTrendData, calculateDateSpanDays, calculateWeightTrendDomain, formatWeightXAxisTick, generateWeightXAxisTicks, getRecentHistoryDates, getWeightDisplayPair, isWeightSeriesVisible, parseWeightTrendMode, type WeightChartPoint } from '../src/utils/history';
 
 const points = [
   { weight: 65, average: 70 },
@@ -90,6 +90,33 @@ describe('历史卡片双单位显示', () => {
       primary: { value: 140.5, unit: '斤' },
       secondary: { value: 70.25, unit: 'kg' },
     });
+  });
+});
+
+describe('体重趋势横轴动态刻度', () => {
+  const makePoints = (dates: string[]): WeightChartPoint[] => dates.map((fullDate, index) => ({ fullDate, date: fullDate.slice(5).replace('-', '/'), weight: 70 + index / 10, average: 70 + index / 20 }));
+
+  it('7天、15天、30天在手机宽度下只选择可读的均匀节点', () => {
+    const seven = makePoints(Array.from({ length: 7 }, (_, index) => `2026-08-${String(index + 1).padStart(2, '0')}`));
+    const fifteen = makePoints(Array.from({ length: 15 }, (_, index) => `2026-08-${String(index + 1).padStart(2, '0')}`));
+    const thirty = makePoints(Array.from({ length: 30 }, (_, index) => `2026-07-${String(index + 1).padStart(2, '0')}`));
+    expect(generateWeightXAxisTicks(seven, 7, 360)).toHaveLength(6);
+    expect(generateWeightXAxisTicks(fifteen, 15, 390)).toHaveLength(6);
+    expect(generateWeightXAxisTicks(thirty, 30, 430)).toHaveLength(6);
+    expect(generateWeightXAxisTicks(thirty, 30, 430)).toEqual(expect.arrayContaining(['2026-07-01', '2026-07-30']));
+  });
+
+  it('全部范围按月或季度聚合刻度，但保留原始图表点', () => {
+    const monthly = makePoints(['2026-01-12','2026-02-12','2026-03-12','2026-04-12','2026-05-12','2026-06-12','2026-07-12','2026-08-12']);
+    const multiYear = makePoints(['2024-01-12','2024-06-12','2025-01-12','2025-06-12','2026-01-12','2026-08-12']);
+    expect(generateWeightXAxisTicks(monthly, 'all', 390).length).toBeLessThanOrEqual(6);
+    expect(formatWeightXAxisTick('2026-03-12', 'all', calculateDateSpanDays(monthly))).toBe('3月');
+    expect(formatWeightXAxisTick('2025-06-12', 'all', calculateDateSpanDays(multiYear))).toBe('25年Q2');
+    expect(monthly).toHaveLength(8);
+  });
+
+  it('最近记录固定取最近7个自然日且按日期倒序', () => {
+    expect(getRecentHistoryDates(['2026-08-01','2026-08-06','2026-08-10','2026-08-12'], '2026-08-12')).toEqual(['2026-08-12','2026-08-10','2026-08-06']);
   });
 });
 
