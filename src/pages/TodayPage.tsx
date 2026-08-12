@@ -9,7 +9,7 @@ import type { MealEntry, WeightRecord } from '../types';
 import { formatFriendlyDate, getAge, parseLocalDate, toLocalDateKey } from '../utils/date';
 import { calculateBMR, calculateDailyActuals, calculateMacroTargets, calculateRemaining, calculateTargetCalories, determineNutritionPlan } from '../utils/nutrition';
 import { calculate15DayAverageWeight, jinToKg, kgToJin, validateWeightDate, validateWeightKg } from '../utils/weight';
-import { roundKcal, roundSmart } from '../utils/format';
+import { formatWeight, roundKcal, roundSmart } from '../utils/format';
 import { PLAN_LABEL } from '../constants';
 import { FoodFlow } from './FoodFlow';
 
@@ -31,7 +31,7 @@ export function TodayPage({ data, reload, toast }: { data: AppData; reload: () =
   return <div className="today-page page-enter">
     <header className="page-header today-header"><div><p>{formatFriendlyDate(today)}</p><h1>今天，也轻松记一下</h1></div><span className="sun-mark"><Sparkles size={20} /></span></header>
     <section className="weight-card soft-card">
-      <div className="card-icon mint"><Scale size={22} /></div><div className="weight-copy"><span>今天的体重</span>{currentWeight ? <strong>{roundSmart(profile.weightUnit === 'jin' ? kgToJin(currentWeight.weightKg) : currentWeight.weightKg, 2)} <small>{profile.weightUnit === 'jin' ? '斤' : 'kg'}</small></strong> : <strong className="muted">还没记录</strong>}<p>{average !== null ? `15日平均 ${roundSmart(profile.weightUnit === 'jin' ? kgToJin(average) : average, 2)} ${profile.weightUnit === 'jin' ? '斤' : 'kg'}` : '记录后生成15日平均'}</p></div>
+      <div className="card-icon mint"><Scale size={22} /></div><div className="weight-copy"><span>今天的体重</span>{currentWeight ? <strong>{formatWeight(profile.weightUnit === 'jin' ? kgToJin(currentWeight.weightKg) : currentWeight.weightKg)} <small>{profile.weightUnit === 'jin' ? '斤' : 'kg'}</small></strong> : <strong className="muted">还没记录</strong>}<p>{average !== null ? `15日平均 ${formatWeight(profile.weightUnit === 'jin' ? kgToJin(average) : average)} ${profile.weightUnit === 'jin' ? '斤' : 'kg'}` : '记录后生成15日平均'}</p></div>
       <button className="mini-edit" onClick={() => setWeightOpen(true)}><Edit3 size={17} /> {currentWeight ? '编辑' : '记录'}</button>
     </section>
 

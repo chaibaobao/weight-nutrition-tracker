@@ -59,8 +59,10 @@ describe('体重趋势显示模式', () => {
     const jinData = buildWeightTrendData(records, '2026-08-01', '2026-08-12', 'jin');
     const kgDomain = calculateWeightTrendDomain(kgData, 'actual', 'kg');
     const jinDomain = calculateWeightTrendDomain(jinData, 'actual', 'jin');
-    expect(kgDomain).toEqual([69.55, 71.45]);
-    expect(jinDomain).toEqual([139.1, 142.9]);
+    expect(kgDomain?.[0]).toBeCloseTo(69.55);
+    expect(kgDomain?.[1]).toBeCloseTo(71.45);
+    expect(jinDomain?.[0]).toBeCloseTo(139.1);
+    expect(jinDomain?.[1]).toBeCloseTo(142.9);
     expect(jinData.map(point => point.weight)).toEqual(kgData.map(point => Number(point.weight) * 2));
   });
 

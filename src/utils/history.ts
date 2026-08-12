@@ -59,7 +59,7 @@ export function calculateWeightTrendDomain(points: WeightTrendPoint[], mode: Wei
   const maximum = Math.max(...values);
   const minimumPadding = unit === 'jin' ? 0.5 : 0.25;
   const padding = minimum === maximum ? minimumPadding * 2 : Math.max(minimumPadding, (maximum - minimum) * 0.15);
-  return [Math.floor((minimum - padding) * 100) / 100, Math.ceil((maximum + padding) * 100) / 100];
+  return [minimum - padding, maximum + padding];
 }
 
 /** Both display values are derived from the same kg source; only their visual priority changes. */
