@@ -33,46 +33,51 @@ function unlockPageScroll(): void {
 
 export function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
   const titleId = useId();
-  const backdropRef = useRef<HTMLDivElement>(null);
+  const modalRootRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
   useEffect(() => {
     lockPageScroll();
-    const backdrop = backdropRef.current;
+    const modalRoot = modalRootRef.current;
     const viewport = window.visualViewport;
     const syncViewport = () => {
-      if (!backdrop) return;
-      backdrop.style.setProperty('--modal-viewport-height', `${viewport?.height ?? window.innerHeight}px`);
-      backdrop.style.setProperty('--modal-viewport-offset-top', `${viewport?.offsetTop ?? 0}px`);
+      if (!modalRoot) return;
+      // The root keeps covering the layout viewport. Only the editor surface follows
+      // the smaller visual viewport so the keyboard never exposes the page below it.
+      modalRoot.style.setProperty('--modal-visual-height', `${viewport?.height ?? window.innerHeight}px`);
+      modalRoot.style.setProperty('--modal-visual-offset-top', `${viewport?.offsetTop ?? 0}px`);
       const active = document.activeElement;
-      if (active instanceof HTMLElement && backdrop.contains(active)) {
+      if (active instanceof HTMLElement && modalRoot.contains(active)) {
         window.setTimeout(() => active.scrollIntoView({ block: 'nearest', inline: 'nearest' }), 60);
       }
     };
     const keepFocusedFieldVisible = (event: FocusEvent) => {
-      if (!(event.target instanceof HTMLElement) || !backdrop?.contains(event.target)) return;
+      if (!(event.target instanceof HTMLElement) || !modalRoot?.contains(event.target)) return;
       window.setTimeout(() => event.target instanceof HTMLElement && event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' }), 100);
     };
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onCloseRef.current(); };
     syncViewport();
     viewport?.addEventListener('resize', syncViewport);
     viewport?.addEventListener('scroll', syncViewport);
-    backdrop?.addEventListener('focusin', keepFocusedFieldVisible);
+    modalRoot?.addEventListener('focusin', keepFocusedFieldVisible);
     document.addEventListener('keydown', closeOnEscape);
     return () => {
       viewport?.removeEventListener('resize', syncViewport);
       viewport?.removeEventListener('scroll', syncViewport);
-      backdrop?.removeEventListener('focusin', keepFocusedFieldVisible);
+      modalRoot?.removeEventListener('focusin', keepFocusedFieldVisible);
       document.removeEventListener('keydown', closeOnEscape);
       unlockPageScroll();
     };
   }, []);
 
-  return createPortal(<div ref={backdropRef} className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className={`modal-sheet ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <header><h2 id={titleId}>{title}</h2><button className="icon-button" onClick={onClose} aria-label="关闭"><X size={22} /></button></header>
-      <div className="modal-content">{children}</div>
-    </section>
+  return createPortal(<div ref={modalRootRef} className="modal-root" role="presentation">
+    <div className="modal-scrim" onMouseDown={onClose} />
+    <div className="modal-surface-frame">
+      <section className={`modal-sheet ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header><h2 id={titleId}>{title}</h2><button className="icon-button" onClick={onClose} aria-label="关闭"><X size={22} /></button></header>
+        <div className="modal-content">{children}</div>
+      </section>
+    </div>
   </div>, document.body);
 }
